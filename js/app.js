@@ -1,5 +1,5 @@
 $(document).ready(function() {
-
+  var json
 		//init code mirror
 		var editor = CodeMirror(document.querySelector(".block-code"), {
 			lineNumbers: true,
@@ -28,38 +28,50 @@ $(document).ready(function() {
 				return;
 			}
 
-			let json = JSON.parse(code);
+			json = JSON.parse(code);
 			if(!json.dependencies) {
 				showMessage('error', 'Invalid package-lock.json code');
 				return;
 			}
-
 			var mainPackages = json.dependencies;
 			let required = {};
+      let devrequired = {};
 			let subPackages = {};
+      let devsubPackages = {};
 
 			showMessage("loading");
 
 			for(const [key, value] of Object.entries(mainPackages)) {
-
 				if(!value.requires) {
+          if (!value.dev){
 					required[key] = value.version;
+          } else {
+            devrequired[key] = value.version;
+          }
 				} else {
+          if (!value.dev){
 					required[key] = value.version;
 					let requires = value.requires;
-
 					for(const [key, value] of Object.entries(requires)) {
 						subPackages[key] = value;
 					}
+          }else {
+					devrequired[key] = value.version;
+					let requires = value.requires;
+					for(const [key, value] of Object.entries(requires)) {
+						devsubPackages[key] = value;
+					}
+          }
 				}
 			}
 
-			processPackages(required, subPackages, editor);
+			processPackages(required, devrequired, subPackages, devsubPackages, editor);
 
 		});
 
-		async function processPackages(packages, subPackages, editor) {
+		async function processPackages(packages, devpackages, subPackages, devsubPackages, editor) {
 			let required = packages;
+      let devrequired = devpackages;
 
 			for(pkg in packages) {
 				console.log("On pkg: "+pkg);
@@ -87,32 +99,69 @@ $(document).ready(function() {
 
 				}
 			}
+      for(pkg in devpackages) {
+				console.log("On dev pkg: "+pkg);
+				//skip if exists in subpackages OTHERWISE FETCH AND PUSH TO subPackages
+			
+				if(devsubPackages.hasOwnProperty(pkg)) {
+					delete devrequired[pkg];
+					continue;
+				}
 
-			let packaged = await packageJson(required);
+				let pkgInfo = await devunpack(pkg);
+				let dependencies = pkgInfo.collected.metadata.dependencies;
+
+				if(!dependencies) {
+					continue;
+				}
+
+				for (const [key, value] of Object.entries(dependencies)) {
+
+					if(devrequired.hasOwnProperty(key)) {
+						delete devrequired[key];
+					}
+
+					devsubPackages[key] = value;
+
+				}
+			}
+
+			let packaged = await packageJson(required, devrequired);
 			editor.setValue(packaged);
 			showMessage("success", "Successfully Converted: Copy this code and paste it in package.json");
 
 		}
 
-		const packageJson = (processed) => {
+		const packageJson = (processed, devprocessed) => {
 			let main = {
-				"name": "converted",
-				"version": "1.0.0",
+				"name": json.name || "converted",
+				"version": json.version || "1.0.0",
 				"description": "",
 				"author": "",
 				"license": "ISC",
-				"dependencies": processed
+				"dependencies": processed,
+        "devDependencies": devprocessed
 			};
 
-			return JSON.stringify(main);
+			return JSON.stringify(main, null, 4);
 		}
 
 		async function unpack(package) {
 			const pkgInfo = await getPackage(package)
 			return pkgInfo;
 		}
+  async function devunpack(package) {
+			const pkgInfo = await devgetPackage(package)
+			return pkgInfo;
+		}
 
 		async function getPackage(package) {
+			let pkg = encodeURIComponent(package);
+		    const response = await fetch("https://api.npms.io/v2/package/"+pkg);
+		    const json = await response.json();
+		    return json;
+		}
+  async function devgetPackage(package) {
 			let pkg = encodeURIComponent(package);
 		    const response = await fetch("https://api.npms.io/v2/package/"+pkg);
 		    const json = await response.json();
