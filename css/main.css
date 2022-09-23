@@ -95,9 +95,12 @@ img {
 }
 
 .heading {
-    padding: 50px 0;
+    padding: 0px 0;
     color: #2185d0;
     font-weight: 700;
+}
+.split {
+    padding: 25px 0;
 }
 
 .center {
